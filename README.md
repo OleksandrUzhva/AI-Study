@@ -1,196 +1,55 @@
 # Job Analyzer AI
 
-An intelligent job analysis and search platform built with FastAPI and OpenAI GPT-4. The application helps job seekers analyze job postings, search for relevant positions, and get AI-powered insights about career opportunities.
+FastAPI app in `job_analyzer/` for job description analysis, AI job search, and chat-based job assistance.
 
-## Features
+## Quick start
 
-- **Job Analysis**: Analyze job descriptions to extract required skills, tech stack, seniority level, and red flags
-- **AI-Powered Job Search**: Intelligent job search with location filtering
-- **Conversational Interface**: Chat about jobs in natural language - the AI automatically chooses the right tools
-- **Job Comparison**: Compare multiple job opportunities based on custom criteria
-- **Structured Output**: Consistent, parseable responses using OpenAI's structured output
+1. `cd job_analyzer`
+2. create `.env` with `OPENAI_API_KEY=...`
+3. `python -m venv venv`
+4. activate the environment
+5. `pip install -r requirements.txt`
+6. `uvicorn main:app --reload`
 
-## Tech Stack
+Open docs at `http://127.0.0.1:8000/docs`.
 
-- **Backend**: FastAPI (Python)
-- **AI**: OpenAI GPT-4o-mini with function calling
-- **Data Models**: Pydantic
-- **Environment**: Python virtual environment
+## Endpoints
 
-## Installation
+- `POST /analyze-job` — analyze a job description
+- `POST /search-jobs` — search jobs with AI support
+- `POST /chat-about-job` — conversational job queries with tool routing
 
-1. **Clone the repository** (if applicable) or navigate to the project directory
+## Deploy
 
-2. **Create virtual environment**:
-   ```bash
-   python -m venv venv
-   ```
+- Railway root should be `job_analyzer` if supported.
+- Otherwise use the repository root `Dockerfile`.
 
-3. **Activate virtual environment**:
-   ```bash
-   # Windows
-   venv\Scripts\activate
-   
-   # Linux/Mac
-   source venv/bin/activate
-   ```
+## Notes
 
-4. **Install dependencies**:
-   ```bash
-   pip install fastapi uvicorn openai python-dotenv
-   ```
+- Uses `fastapi`, `uvicorn`, `python-dotenv`, and `openai`
+- Main app file: `job_analyzer/main.py`
+- Requirements: `job_analyzer/requirements.txt`
 
-5. **Set up environment variables**:
-   Create a `.env` file in the project root:
-   ```
-   OPENAI_API_KEY=your_openai_api_key_here
-   ```
 
-## Running the Application
+- Use the root-level `Dockerfile` in the repository root.
+- Railway will build the app from the `job_analyzer/` folder by copying `job_analyzer/requirements.txt` and application files.
+- If Railway allows specifying a service root, set it to `job_analyzer`.
 
-1. **Start the server**:
-   ```bash
-   uvicorn job_analyzer.main:app --reload
-   ```
+### Build locally with Docker
 
-2. **Access the API**:
-   - Interactive docs: http://127.0.0.1:8000/docs
-   - Alternative docs: http://127.0.0.1:8000/redoc
+From the repository root:
 
-## API Endpoints
-
-### 1. `/analyze-job` (POST)
-Analyze a single job posting and get structured insights.
-
-**Request Body**:
-```json
-{
-  "job_description": "Python developer with 3+ years experience...",
-  "your_skills": ["Python", "Django", "FastAPI", "PostgreSQL"]
-}
-```
-
-**Response**:
-```json
-{
-  "job_title": "Python Developer",
-  "required_skills": ["Python", "Django", "PostgreSQL"],
-  "seniority_level": "middle",
-  "main_tech_stack": ["Python", "Django", "PostgreSQL"],
-  "red_flags": [],
-  "match_score": 85
-}
-```
-
-### 2. `/search-jobs` (POST)
-Search for jobs using AI-powered tool calling.
-
-**Request Body**:
-```json
-{
-  "query": "Python developer",
-  "location": "Spain"
-}
-```
-
-**Response**:
-```json
-{
-  "jobs": [
-    {
-      "title": "Python Developer - Python developer",
-      "company": "Tech Corp",
-      "location": "Spain",
-      "salary": "1000-1500 USD",
-      "description": "Looking for Python developer..."
-    }
-  ],
-  "ai_decision": "Used search tool"
-}
-```
-
-### 3. `/chat-about-job` (POST)
-Conversational interface for job-related queries. The AI automatically chooses between analysis, search, or comparison tools.
-
-**Request Body**:
-```json
-{
-  "message": "Проанализируй эту вакансию: Python разработчик с опытом FastAPI"
-}
-```
-
-**Response** (analysis example):
-```json
-{
-  "analysis": {
-    "job_title": "Python Developer",
-    "required_skills": ["Python", "FastAPI"],
-    "seniority_level": "middle",
-    "main_tech_stack": ["Python", "FastAPI"],
-    "red_flags": [],
-    "match_score": 90
-  },
-  "ai_decision": "Used analyze_job tool"
-}
-```
-
-## Usage Examples
-
-### Using curl
-
-**Analyze a job**:
 ```bash
-curl -X POST "http://127.0.0.1:8000/analyze-job" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "job_description": "Junior Python Developer with Django experience",
-    "your_skills": ["Python", "Django", "React"]
-  }'
-```
+docker build -t job-analyzer .
+``` 
 
-**Chat about jobs**:
+Run the container:
+
 ```bash
-curl -X POST "http://127.0.0.1:8000/chat-about-job" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "Сравни эти вакансии: 1. Python dev 1000 USD, 2. Java dev 1200 USD по зарплате и технологиям"
-  }'
+docker run -p 8000:8000 job-analyzer
 ```
 
-### Using Python
-
-```python
-import requests
-
-# Analyze job
-response = requests.post(
-    "http://127.0.0.1:8000/analyze-job",
-    json={
-        "job_description": "Python developer needed",
-        "your_skills": ["Python", "Django"]
-    }
-)
-print(response.json())
-
-# Chat interface
-response = requests.post(
-    "http://127.0.0.1:8000/chat-about-job",
-    json={"message": "Проанализируй вакансию Python разработчика"}
-)
-print(response.json())
-```
-
-## AI Features
-
-### Function Calling
-The application uses OpenAI's function calling to intelligently route user queries:
-
-- **analyze_job**: For detailed job analysis
-- **search_jobs**: For job search queries
-- **compare_jobs**: For comparing multiple positions
-
-### Smart Routing
-The `/chat-about-job` endpoint automatically determines which tool to use based on the user's natural language input.
+The API will be available at `http://127.0.0.1:8000`.
 
 ## Project Structure
 
