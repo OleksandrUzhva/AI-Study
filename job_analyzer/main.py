@@ -1,23 +1,45 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from typing import List
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, ValidationError
+from typing import List, Literal, Optional
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
 import os
 import json
+import uuid
+from uuid import uuid4
 
 load_dotenv()
 app = FastAPI()
 client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+sessions: dict[str, list[dict[str, str]]] = {} 
+MAX_HISTORY = 20 # максимум сообщений в истории
+
+
+class Skill(BaseModel):
+    name: str
+    level: Literal["must_have", "nice_to_have"]
+    why_important: str
+
+
+class RedFlag(BaseModel):
+    issue: str
+    severity: Literal["low", "medium", "high"]
 
 
 class JobAnalysis(BaseModel):
     job_title: str
-    required_skills: List[str]
-    seniority_level: str  # junior / middle / senior
+    required_skills: List[Skill]
+    seniority_level: Literal["junior", "middle", "senior"]
     main_tech_stack: List[str]
-    red_flags: List[str]
-    match_score: int  # 0-100
+    red_flags: List[RedFlag]
+    match_score: int = Field(
+        ge=0,
+        le=100,
+        description="0=нет совпадений, 100=идеальное совпадение. Учитывай только технические навыки",
+    )
+    recommendation: str = Field(
+        description="1-2 предложения: стоит ли подавать заявку и почему",
+    )
 
 
 class AnalyzeRequest(BaseModel):
@@ -39,29 +61,37 @@ class SearchJobsRequest(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None 
 
 
-async def analyze_job_function(job_description: str, your_skills: List[str] = None):
+class ChatResponse(BaseModel): 
+    reply: str 
+    session_id: str
+
+
+async def analyze_job_function(request: AnalyzeRequest):
     """Helper function for analyzing a job posting."""
-    if your_skills is None:
-        your_skills = ["Python", "Django", "FastAPI", "PostgreSQL", "Docker", "REST API"]
-    
+
     prompt = f"""Проанализируй вакансию и оцени соответствие кандидата.
-            Навыки кандидата: {', '.join(your_skills)}
-            Вакансия: {job_description}"""
-    
+            Навыки кандидата: {', '.join(request.your_skills)}
+            Вакансия: {request.job_description}"""
+
     response = await client.beta.chat.completions.parse(
         model="gpt-4o-mini",
         messages=[
             {
                 "role": "system",
-                "content": """Ты опытный технический рекрутер. Анализируй вакансии и выявляй:
-                - required_skills: только обязательные технические навыки
+                "content": """Ты опытный технический рекрутер. Анализируй вакансии и формируй вывод в виде объекта JobAnalysis с такими полями:
+                - job_title: краткий заголовок вакансии
+                - required_skills: список объектов Skill, где каждый объект содержит:
+                  name, level (must_have или nice_to_have), why_important
                 - main_tech_stack: основные технологии проекта
-                - red_flags: тревожные признаки вакансии — нереалистичные требования, 
-                  отсутствие зарплаты, расплывчатые обязанности, признаки переработок.
-                  Если красных флагов нет — возвращай пустой список.
-                - match_score: 0-100 насколько навыки кандидата совпадают с требованиями"""
+                - red_flags: список объектов RedFlag, где каждый объект содержит:
+                  issue и severity (low, medium или high)
+                  Если тревог нет — возвращай пустой список.
+                - match_score: число 0-100 насколько навыки кандидата совпадают с требованиями
+                - recommendation: короткая рекомендация, стоит ли подаваться на эту вакансию
+                """,
             },
             {
                 "role": "user",
@@ -84,10 +114,9 @@ async def compare_jobs_function(jobs: List[str], criteria: List[str]):
 {chr(10).join(f"- {criterion}" for criterion in criteria)}
 
 Дай подробное сравнение, укажи преимущества и недостатки каждой вакансии по каждому критерию."""
-    
+
     response = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}]
+        model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}]
     )
     return response.choices[0].message.content
 
@@ -146,15 +175,39 @@ async def search_jobs_endpoint(request: SearchJobsRequest):
 
 @app.post("/analyze-job", response_model=JobAnalysis)
 async def analyze_job(request: AnalyzeRequest):
-    return await analyze_job_function(request.job_description, request.your_skills)
+    try:
+        return await analyze_job_function(request)
+    except ValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {
+                    "loc": ["body", "response"],
+                    "msg": "Validation error while parsing AI response",
+                    "type": "value_error",
+                    "errors": exc.errors(),
+                }
+            ],
+        )
 
 
-@app.post("/chat-about-job")
+@app.post("/chat-about-job", response_model=ChatResponse)
 async def chat_about_job(request: ChatRequest):
     """
     Endpoint for chatting about jobs in free form.
     The AI will decide whether to call analyze_job or compare_jobs based on the message.
     """
+    sid = request.session_id or str(uuid4()) 
+    if sid not in sessions: 
+        sessions[sid] = [{ "role": "system", "content": "Ты помощник по анализу вакансий" }] # Добавляем сообщение пользователя 
+        sessions[sid].append({"role": "user", "content": request.message}) # Обрезаем если история слишком длинная 
+        if len(sessions[sid]) > MAX_HISTORY: 
+            sessions[sid] = [sessions[sid][0]] + sessions[sid][-MAX_HISTORY+1:]
+            response = await client.chat.completions.create( model="gpt-4o-mini", messages=sessions[sid] ) 
+            reply = response.choices[0].message.content 
+            sessions[sid].append({"role": "assistant", "content": reply}) 
+            return ChatResponse(reply=reply, session_id=sid)
+        
     tools = [
         {
             "type": "function",
@@ -164,12 +217,19 @@ async def chat_about_job(request: ChatRequest):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "job_description": {"type": "string", "description": "Описание вакансии"},
-                        "your_skills": {"type": "array", "items": {"type": "string"}, "description": "Навыки кандидата"}
+                        "job_description": {
+                            "type": "string",
+                            "description": "Описание вакансии",
+                        },
+                        "your_skills": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Навыки кандидата",
+                        },
                     },
-                    "required": ["job_description"]
-                }
-            }
+                    "required": ["job_description"],
+                },
+            },
         },
         {
             "type": "function",
@@ -179,20 +239,32 @@ async def chat_about_job(request: ChatRequest):
                 "parameters": {
                     "type": "object",
                     "properties": {
-                        "jobs": {"type": "array", "items": {"type": "string"}, "description": "Список описаний вакансий"},
-                        "criteria": {"type": "array", "items": {"type": "string"}, "description": "Критерии для сравнения"}
+                        "jobs": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Список описаний вакансий",
+                        },
+                        "criteria": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Критерии для сравнения",
+                        },
                     },
-                    "required": ["jobs", "criteria"]
-                }
-            }
-        }
+                    "required": ["jobs", "criteria"],
+                },
+            },
+        },
     ]
+
+    session_id = request.session_id or str(uuid.uuid4())
+    session = sessions.setdefault(session_id, [])
+    session.append({"role": "user", "content": request.message})
 
     response = await client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[{"role": "user", "content": request.message}],
         tools=tools,
-        tool_choice="auto"
+        tool_choice="auto",
     )
 
     # Handle tool calls
@@ -200,17 +272,30 @@ async def chat_about_job(request: ChatRequest):
         for tool_call in response.choices[0].message.tool_calls:
             if tool_call.function.name == "analyze_job":
                 args = json.loads(tool_call.function.arguments)
-                result = await analyze_job_function(**args)
-                return {"analysis": result, "ai_decision": "Used analyze_job tool"}
+                result = await analyze_job_function(AnalyzeRequest(**args))
+                assistant_text = json.dumps(result, ensure_ascii=False)
+                session.append({"role": "assistant", "content": assistant_text})
+                return {
+                    "session_id": session_id,
+                    "analysis": result,
+                    "ai_decision": "Used analyze_job tool",
+                }
             elif tool_call.function.name == "compare_jobs":
                 args = json.loads(tool_call.function.arguments)
                 result = await compare_jobs_function(**args)
-                return {"comparison": result, "ai_decision": "Used compare_jobs tool"}
+                session.append({"role": "assistant", "content": result})
+                return {
+                    "session_id": session_id,
+                    "comparison": result,
+                    "ai_decision": "Used compare_jobs tool",
+                }
 
-    # If no tool calls, return AI's direct response
+    assistant_text = response.choices[0].message.content
+    session.append({"role": "assistant", "content": assistant_text})
     return {
-        "response": response.choices[0].message.content,
-        "ai_decision": "Direct response"
+        "session_id": session_id,
+        "response": assistant_text,
+        "ai_decision": "Direct response",
     }
 
 

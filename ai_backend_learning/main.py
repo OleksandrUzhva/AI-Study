@@ -78,7 +78,7 @@ class JobAnalysis(BaseModel):
     red_flags: List[str] 
     match_score: int # 0-100 
 
-# Structured output — схема гарантирована 
+# Structured output 
 response = client.beta.chat.completions.parse( 
     model="gpt-4o-mini", 
     messages=[ 
@@ -88,4 +88,4 @@ response = client.beta.chat.completions.parse(
     response_format=JobAnalysis 
 ) 
 analysis: JobAnalysis = response.choices[0].message.parsed 
-print(analysis.match_score) # сразу int, не строка
+print(analysis.match_score) # сразу int
