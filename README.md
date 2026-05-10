@@ -54,10 +54,22 @@ The API will be available at `http://127.0.0.1:8000`.
 ## Project Structure
 
 ```
-job_analyzer/
-├── main.py              # Main FastAPI application
-├── test_analyze.py      # Test script
-└── __pycache__/         # Python cache
+job-analyzer/
+├── app/
+│   ├── __init__.py
+│   ├── main.py
+│   ├── config.py
+│   ├── routers/
+│   │   ├── __init__.py
+│   │   └── jobs.py
+│   ├── services/
+│   │   ├── __init__.py
+│   │   ├── analyzer.py
+│   │   └── session.py
+│   └── models/
+│       ├── __init__.py
+│       └── schemas.py
+└── requirements.txt
 
 ai_backend_learning/     # Additional learning materials
 .gitignore              # Git ignore rules
