@@ -9,7 +9,7 @@ FastAPI app in `job_analyzer/` for job description analysis, AI job search, and 
 3. `python -m venv venv`
 4. activate the environment
 5. `pip install -r requirements.txt`
-6. `uvicorn main:app --reload`
+6. `uvicorn app.main:app --reload`
 
 Open docs at `http://127.0.0.1:8000/docs`.
 
@@ -27,7 +27,7 @@ Open docs at `http://127.0.0.1:8000/docs`.
 ## Notes
 
 - Uses `fastapi`, `uvicorn`, `python-dotenv`, and `openai`
-- Main app file: `job_analyzer/main.py`
+- Main app file: `job_analyzer/app/main.py`
 - Requirements: `job_analyzer/requirements.txt`
 
 
@@ -77,17 +77,6 @@ ai_backend_learning/     # Additional learning materials
 venv/                  # Virtual environment
 ```
 
-## Development
-
-### Running Tests
-```bash
-python job_analyzer/test_analyze.py
-```
-
-### Standalone AI Testing
-```bash
-python job_analyzer/main.py
-```
 
 ## Requirements
 
