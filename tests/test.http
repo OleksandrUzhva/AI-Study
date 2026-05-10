@@ -3,7 +3,7 @@ POST http://127.0.0.1:8000/chat-about-job
 Content-Type: application/json
 
 {
-  "message": "Вот вакансия: Junior Python Backend Developer. Нужен FastAPI, Docker, PostgreSQL. Опыт 1-2 года. Проанализируй её"
+  "message": "Вот вакансия: Junior Python Backend Developer. Нужен FastAPI, Docker, PostgreSQL. Опыт 1-2 года, зарплата 100 долларов. Проанализируй её"
 }
 
 ###
@@ -14,7 +14,7 @@ Content-Type: application/json
 
 {
   "message": "Стоит ли мне откликаться? Мои навыки: Python, Django, FastAPI, PostgreSQL, Docker, REST API",
-  "session_id": "aa768555-93d5-4545-a1c4-e8aff26ebcc5"
+  "session_id": "78498173-9da6-4c43-b784-280add8fa4d5"
 }
 
 ###
@@ -25,5 +25,5 @@ Content-Type: application/json
 
 {
   "message": "Какие навыки мне нужно подтянуть?",
-  "session_id": "bbca03b4-f7a8-48e8-81f6-7dac12685fe3"
+  "session_id": "78498173-9da6-4c43-b784-280add8fa4d5"
 }
