@@ -1,4 +1,6 @@
+import openai
 from openai import AsyncOpenAI
+from fastapi import HTTPException
 from typing import List
 from app.models.schemas import JobAnalysis, AnalyzeRequest
 from app.config import settings
@@ -15,31 +17,38 @@ async def analyze_job_function(request: AnalyzeRequest) -> JobAnalysis:
 {', '.join(request.your_skills)}
 </candidate_skills>"""
 
-    response = await client.beta.chat.completions.parse(
-        model=settings.model,
-        messages=[
-            {
-                "role": "system",
-                "content": """Ты опытный технический рекрутер с 10 годами опыта.
+    try:
+        response = await client.beta.chat.completions.parse(
+            model=settings.model,
+            messages=[
+                {
+                    "role": "system",
+                    "content": """Ты опытный технический рекрутер с 10 годами опыта.
 
-При анализе вакансии рассуждай по шагам:
-1. Выдели обязательные технические требования из <job_description>
-2. Сравни каждое требование с навыками из <candidate_skills>
-3. Найди красные флаги: нереалистичные требования для уровня,
-   отсутствие зарплаты, признаки переработок, расплывчатые обязанности
-4. Рассчитай match_score только по техническим навыкам (0-100)
-5. Дай конкретную рекомендацию
+    При анализе вакансии рассуждай по шагам:
+    1. Выдели обязательные технические требования из <job_description>
+    2. Сравни каждое требование с навыками из <candidate_skills>
+    3. Найди красные флаги: нереалистичные требования для уровня,
+    отсутствие зарплаты, признаки переработок, расплывчатые обязанности
+    4. Рассчитай match_score только по техническим навыкам (0-100)
+    5. Дай конкретную рекомендацию
 
-Примеры красных флагов высокой серьёзности:
-- "Senior опыт за Junior зарплату"
-- "Работа в выходные по необходимости"
-- Требуется 5+ технологий для Junior позиции""",
-            },
-            {"role": "user", "content": prompt},
-        ],
-        response_format=JobAnalysis,
-    )
-    return response.choices[0].message.parsed
+    Примеры красных флагов высокой серьёзности:
+    - "Senior опыт за Junior зарплату"
+    - "Работа в выходные по необходимости"
+    - Требуется 5+ технологий для Junior позиции""",
+                },
+                {"role": "user", "content": prompt},
+            ],
+            response_format=JobAnalysis,
+        )
+        return response.choices[0].message.parsed
+    except openai.RateLimitError:
+        raise HTTPException(
+            status_code=429, detail="Слишком много запросов. Пожалуйста, подождите."
+        )
+    except openai.OpenAIError as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка OpenAI: {str(e)}")
 
 
 async def compare_jobs_function(jobs: List[str], criteria: List[str]) -> str:
