@@ -1,89 +1,112 @@
 import openai
-from openai import AsyncOpenAI
+from typing import List, AsyncGenerator
 from fastapi import HTTPException
-from typing import List
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
+from langchain_core.runnables.history import RunnableWithMessageHistory
+
 from app.models.schemas import JobAnalysis, AnalyzeRequest
+from app.services.session import get_session_history
 from app.config import settings
 
-client = AsyncOpenAI(api_key=settings.openai_api_key)
+
+llm_structured = ChatOpenAI(
+    model=settings.model,
+    api_key=settings.openai_api_key,
+    temperature=0,  
+).with_structured_output(JobAnalysis)
+
+llm_chat = ChatOpenAI(
+    model="gpt-4o-mini", api_key=settings.openai_api_key, streaming=True
+)
+
+
+SYSTEM_ANALYZE = "Ты технический рекрутер с 10-летним опытом. Проанализируй вакансию и выдели главное."
+SYSTEM_CHAT = "Ты технический рекрутер. Помогаешь кандидату разобраться в вакансии, используя историю чата."
 
 
 async def analyze_job_function(request: AnalyzeRequest) -> JobAnalysis:
-    prompt = f"""<job_description>
-{request.job_description}
-</job_description>
+    """Анализ вакансии через LangChain с структурированным выводом."""
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_ANALYZE),
+            (
+                "human",
+                "Проанализируй вакансию: {job_description}\nМои навыки: {your_skills}",
+            ),
+        ]
+    )
 
-<candidate_skills>
-{', '.join(request.your_skills)}
-</candidate_skills>"""
+    chain = prompt | llm_structured
 
     try:
-        response = await client.beta.chat.completions.parse(
-            model=settings.model,
-            messages=[
-                {
-                    "role": "system",
-                    "content": """Ты опытный технический рекрутер с 10 годами опыта.
-
-    При анализе вакансии рассуждай по шагам:
-    1. Выдели обязательные технические требования из <job_description>
-    2. Сравни каждое требование с навыками из <candidate_skills>
-    3. Найди красные флаги: нереалистичные требования для уровня,
-    отсутствие зарплаты, признаки переработок, расплывчатые обязанности
-    4. Рассчитай match_score только по техническим навыкам (0-100)
-    5. Дай конкретную рекомендацию
-
-    Примеры красных флагов высокой серьёзности:
-    - "Senior опыт за Junior зарплату"
-    - "Работа в выходные по необходимости"
-    - Требуется 5+ технологий для Junior позиции""",
-                },
-                {"role": "user", "content": prompt},
-            ],
-            response_format=JobAnalysis,
+        return await chain.ainvoke(
+            {
+                "job_description": request.job_description,
+                "your_skills": ", ".join(request.your_skills),
+            }
         )
-        return response.choices[0].message.parsed
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ошибка анализа: {str(e)}")
+
+
+async def chat_with_job_streaming(
+    message: str, session_id: str
+) -> AsyncGenerator[str, None]:
+    """Потоковый чат с сохранением истории сессии."""
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            ("system", SYSTEM_CHAT),
+            ("placeholder", "{chat_history}"),
+            ("human", "{input}"),
+        ]
+    )
+
+    chain = prompt | llm_chat | StrOutputParser()
+
+    with_history = RunnableWithMessageHistory(
+        chain,
+        get_session_history,
+        input_messages_key="input",
+        history_messages_key="chat_history",
+    )
+
+    config = {"configurable": {"session_id": session_id}}
+
+    try:
+        async for chunk in with_history.astream({"input": message}, config=config):
+            yield chunk
     except openai.RateLimitError:
-        raise HTTPException(
-            status_code=429, detail="Слишком много запросов. Пожалуйста, подождите."
-        )
-    except openai.OpenAIError as e:
-        raise HTTPException(status_code=500, detail=f"Ошибка OpenAI: {str(e)}")
+        raise HTTPException(status_code=429, detail="Лимит запросов исчерпан.")
 
 
 async def compare_jobs_function(jobs: List[str], criteria: List[str]) -> str:
-    prompt = f"""Сравни следующие вакансии по заданным критериям.
-
-Вакансии:
-{chr(10).join(f"{i+1}. {job}" for i, job in enumerate(jobs))}
-
-Критерии для сравнения:
-{chr(10).join(f"- {criterion}" for criterion in criteria)}
-
-Дай подробное сравнение, укажи преимущества и недостатки каждой вакансии."""
-
-    response = await client.chat.completions.create(
-        model=settings.model, messages=[{"role": "user", "content": prompt}]
+    """Сравнение вакансий (тоже переведено на LangChain для единообразия)."""
+    prompt = ChatPromptTemplate.from_template(
+        "Сравни вакансии: {jobs}\nКритерии: {criteria}"
     )
-    return response.choices[0].message.content
+    chain = prompt | llm_chat | StrOutputParser()
+
+    return await chain.ainvoke(
+        {"jobs": "\n".join(jobs), "criteria": ", ".join(criteria)}
+    )
 
 
 def search_jobs(query: str, location: str = None) -> list:
-    """Мок — в реальном проекте здесь был бы вызов LinkedIn API"""
+    """Мок поиска вакансий."""
     mock_jobs = [
         {
-            "title": f"Python Developer - {query}",
-            "company": "Tech Corp",
+            "title": f"Python Dev - {query}",
+            "company": "Tech",
             "location": location or "Remote",
-            "salary": "1000-1500 USD",
         },
         {
-            "title": f"Junior Python Engineer - {query}",
-            "company": "Innovate Ltd",
+            "title": f"Junior Dev - {query}",
+            "company": "Innovate",
             "location": location or "Spain",
-            "salary": "1000-1500 USD",
         },
     ]
     if location:
-        mock_jobs = [j for j in mock_jobs if location.lower() in j["location"].lower()]
+        return [j for j in mock_jobs if location.lower() in j["location"].lower()]
     return mock_jobs

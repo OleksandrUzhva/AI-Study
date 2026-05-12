@@ -32,7 +32,7 @@ class JobAnalysis(BaseModel):
 class AnalyzeRequest(BaseModel):
     job_description: str
     your_skills: List[str] = [
-        "Python",
+        "Java",
         "Django",
         "FastAPI",
         "PostgreSQL",
